@@ -1,11 +1,13 @@
 #include <cstdio>
 #include <cmath>
+#include <cstring>
 
 struct Complex {
-    double real;
-    double imag;
+    float real;
+    float imag;
 
-    Complex(double r, double i) : real(r), imag(i) {}
+    Complex() : real(0), imag(0) {}
+    Complex(float r, float i) : real(r), imag(i) {}
 
     Complex operator+(const Complex& other) const {
         return Complex(real + other.real, imag + other.imag);
@@ -15,20 +17,26 @@ struct Complex {
         return Complex(real - other.real, imag - other.imag);
     }
 
+    Complex operator*(const float& other) const {
+    	return Complex(real*other, imag*other);
+    }
     Complex operator*(const Complex& other) const {
         return Complex(real * other.real - imag * other.imag, real * other.imag + imag * other.real);
     }
 
-    Complex operator/(const double& scalar) const {
+    Complex operator/(const float& scalar) const {
         return Complex(real / scalar, imag / scalar);
     }
 };
 
+inline Complex conj(const Complex& a) {
+    return Complex(a.real,-a.imag);
+}
 // Function to print a 2D array
 void printArray(Complex* arr, int rows, int cols) {
     for (int i = 0; i < rows; ++i) {
         for (int j = 0; j < cols; ++j) {
-            printf("%f + %fi ", arr[i * cols + j].real, arr[i * cols + j].imag);
+            printf("%2.2f + %2.2fi ", arr[i * cols + j].real, arr[i * cols + j].imag);
         }
         printf("\n");
     }
@@ -51,24 +59,31 @@ int main() {
 
     // Initialize b matrix
     for (int i = 0; i < N * N; ++i) {
-        b[i] = a[i] + Complex(a[i].real, -a[i].imag); // conjugate of a[i]
+        b[i] = a[i] + Complex(0, a[i].real); // a+1j*a
     }
 
     // Initialize A and X matrices
-    for (int i = 0; i < N * N; ++i) {
-        A[i] = b[i] + Complex(b[i].real, -b[i].imag); // conjugate of b[i]
-        X[i] = (i % (N + 1) == 0) ? Complex(1.0, 0.0) : Complex(0.0, 0.0); // Identity matrix
+    for (int i = 0; i < N; ++i) {
+        for (int j = 0; j < N; ++j) {
+            A[i*N+j]=b[i*N+j]+conj(b[j*N+i]);
+	}
+        X[i*N+i] = Complex(1.0, 0.0); // Identity matrix
     }
-
+    
+    delete[] a;
+    delete[] b;
+    //printArray(A,N,N);
+    //printArray(X,N,N);
+    //printf("===\n");
     for (int iter = 0; iter < 10; ++iter) {
-        double max_A = 0.0;
+        float max_A = 0.0;
         int p = 0, q = 0;
 
         // Find p, q
         for (int i = 0; i < N; ++i) {
             for (int j = i + 1; j < N; ++j) {
                 if (i != j) {
-                    double a = std::sqrt(A[i * N + j].real * A[i * N + j].real + A[i * N + j].imag * A[i * N + j].imag);
+                    float a = A[i * N + j].real * A[i * N + j].real + A[i * N + j].imag * A[i * N + j].imag;
                     if (a > max_A) {
                         max_A = a;
                         p = i;
@@ -78,40 +93,47 @@ int main() {
             }
         }
 
-        printf("%f\n", max_A);
-
-        double theta = M_PI / 4.0 - 0.5 * std::atan2((A[p * N + p].real - A[q * N + q].real), 2.0 * max_A);
-        double phi = -std::atan2(A[p * N + q].imag, A[p * N + q].real);
+        printf("max:%f (%d,%d)\n", max_A , p ,q);
+	if(max_A<1.0e-10){
+            break;
+	}
+        float theta = M_PI / 4.0 - 0.5 * std::atan2((A[p * N + p].real - A[q * N + q].real), 2.0 * std::sqrt(max_A));
+        float phi = -std::atan2(A[p * N + q].imag, A[p * N + q].real);
         printf("%f %f\n", theta, phi);
 
-        double cos_theta = std::cos(theta);
-        double sin_theta = std::sin(theta);
+        float cos_theta = std::cos(theta);
+        float sin_theta = std::sin(theta);
+        Complex e_neg_phi(std::cos(phi),-std::sin(phi));
+        Complex e_phi(std::cos(phi),std::sin(phi));
 
         // Update An matrix
         for (int i = 0; i < N; ++i) {
             for (int j = i; j < N; ++j) {
                 if (i == p && j != q && j != p) {
-                    An[p * N + j] = A[p * N + j] * cos_theta + A[q * N + j] * sin_theta;
-                    An[j * N + p] = An[p * N + j];
+                    An[p * N + j] = A[p * N + j] * cos_theta + A[q * N + j] * sin_theta * e_neg_phi;
+                    An[j * N + p] = conj(An[p * N + j]);
                 } else if (i != q && i != p && j == p) {
-                    An[p * N + i] = A[p * N + i] * cos_theta + A[q * N + i] * sin_theta;
-                    An[i * N + p] = An[p * N + i];
+                    An[p * N + i] = A[p * N + i] * cos_theta + A[q * N + i] * sin_theta * e_neg_phi;
+                    An[i * N + p] = conj(An[p * N + i]);
+
                 } else if (i == q && j != q) {
-                    An[q * N + j] = A[p * N + j] * sin_theta - A[q * N + j] * cos_theta;
-                    An[j * N + q] = An[q * N + j];
+                    An[q * N + j] = A[p * N + j] * sin_theta*e_phi - A[q * N + j] * cos_theta;
+                    An[j * N + q] = conj(An[q * N + j]);
                 } else if (i != q && i != p && j == q) {
-                    An[q * N + i] = A[p * N + i] * sin_theta - A[q * N + i] * cos_theta;
-                    An[i * N + q] = An[q * N + i];
+                    An[q * N + i] = A[p * N + i] * sin_theta*e_phi - A[q * N + i] * cos_theta;
+                    An[i * N + q] = conj(An[q * N + i]);
+
                 } else if (i == p && j == p) {
                     An[p * N + p] = A[p * N + p] * cos_theta * cos_theta + A[q * N + q] * sin_theta * sin_theta +
-                                    A[p * N + q] * sin_theta * cos_theta + A[q * N + p] * sin_theta * cos_theta;
+                                    A[p * N + q] * sin_theta * cos_theta * e_phi + A[q * N + p] * sin_theta * cos_theta *e_neg_phi;
                 } else if (i == q && j == q) {
                     An[q * N + q] = A[p * N + p] * sin_theta * sin_theta + A[q * N + q] * cos_theta * cos_theta -
-                                    A[p * N + q] * sin_theta * cos_theta - A[q * N + p] * sin_theta * cos_theta;
+                                    A[p * N + q] * sin_theta * cos_theta * e_phi - A[q * N + p] * sin_theta * cos_theta * e_neg_phi;
                 } else if (i == p && j == q) {
                     An[p * N + q] = A[p * N + p] * sin_theta * cos_theta - A[q * N + q] * sin_theta * cos_theta -
-                                    A[p * N + q] * cos_theta * cos_theta - A[q * N + p] * sin_theta * sin_theta;
-                    An[q * N + p] = An[p * N + q];
+                                    A[p * N + q] * cos_theta * cos_theta * e_phi + A[q * N + p] * sin_theta * sin_theta * e_neg_phi;
+                    An[p * N + q] = e_neg_phi*An[p * N + q];
+                    An[q * N + p] = conj(An[p * N + q]);
                 } else {
                     An[i * N + j] = A[i * N + j];
                     An[j * N + i] = A[j * N + i];
@@ -123,47 +145,23 @@ int main() {
         for (int i = 0; i < N; ++i) {
             Complex bip = X[i * N + p];
             Complex biq = X[i * N + q];
-            X[i * N + p] = bip * cos_theta + biq * sin_theta;
-            X[i * N + q] = bip * sin_theta - biq * cos_theta;
+            X[i * N + p] = bip * cos_theta + biq * sin_theta*e_phi;
+            X[i * N + q] = bip * sin_theta*e_neg_phi - biq * cos_theta;
         }
 
         // Display An matrix
         printArray(An, N, N);
-
-        // Compute C matrix
-        for (int i = 0; i < N; ++i) {
-            for (int j = 0; j < N; ++j) {
-                Complex sum = {0.0, 0.0};
-                for (int k = 0; k < N; ++k) {
-                    sum = sum + Complex(An[k * N + i].real * An[k * N + j].real - An[k * N + i].imag * An[k * N + j].imag,
-                                        An[k * N + i].real * An[k * N + j].imag + An[k * N + i].imag * An[k * N + j].real);
-                }
-                C[i * N + j] = sum;
-            }
-        }
-
-        // Threshold small values in C
-        for (int i = 0; i < N * N; ++i) {
-            if (std::sqrt(C[i].real * C[i].real + C[i].imag * C[i].imag) < 1.0e-5) {
-                C[i] = {0.0, 0.0};
-            }
-        }
-
-        // Display C matrix
-        printArray(C, N, N);
-        delete[] A;
-        A = An;
-
+	memcpy(A,An,sizeof(Complex)*N*N);
         // Display diagonal elements of An
-        printf(">> %f %f\n", An[p * N + p].real, An[q * N + q].real);
+        for (int i = 0; i < N; ++i) {
+            printf(">> %f %f\n", An[i * N + i].real,An[i * N + i].imag);
+	}
     }
 
-    delete[] a;
-    delete[] b;
+    printArray(X,N,N);
     delete[] A;
     delete[] X;
     delete[] An;
-    delete[] C;
 
     return 0;
 }

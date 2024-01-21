@@ -1,5 +1,7 @@
 #include <Audio.h>
 
+//#include <stlport.h>
+//#include <Eigen30.h>
 
 #include "FFT.h"
 
@@ -41,6 +43,7 @@ const float c = 340;      // m/sec
 //ステアリングベクトル
 //      角度[0~360)、周波数ビン、チャンネル、実数、虚数
 float stearing_vec[MAX_ANGLE/RESOLUTION][FFT_LEN/2][MAX_CHANNEL_NUM][2];
+float corrMat[FFT_LEN/2][MAX_CHANNEL_NUM][MAX_CHANNEL_NUM][2];
 
 
 AudioClass *theAudio;
@@ -128,6 +131,7 @@ void loop()
   static const int32_t buffer_size = buffer_sample * sizeof(int16_t);
   static char  buffer[buffer_size];
   static float result[4][MAX_ANGLE/RESOLUTION];
+
   uint32_t read_size;
   static uint32_t succ_count=0;
   
@@ -160,6 +164,15 @@ void loop()
               pDst[2*k+1] += stearing_vec[theta][k][ch][0] * pTmp[ch][2*k+1];
               pDst[2*k+1] += stearing_vec[theta][k][ch][1] * pTmp[ch][2*k]; 
             }
+            for(int c1=0;c1<MAX_CHANNEL_NUM;c1++){
+              for(int c2=0;c2<MAX_CHANNEL_NUM;c2++){
+                corrMat[k][c1][c2][0]+=  pTmp[c1][2*k]  *pTmp[c2][2*k];
+                corrMat[k][c1][c2][0]+= -pTmp[c1][2*k+1]*pTmp[c2][2*k+1];
+                corrMat[k][c1][c2][1]+=  pTmp[c1][2*k]  *pTmp[c2][2*k+1];
+                corrMat[k][c1][c2][1]+=  pTmp[c1][2*k+1]*pTmp[c2][2*k];
+               }
+            }
+            //corrMat[k]
           }
           result[pos][theta] = 0;
           arm_cmplx_mag_f32(pDst, pPower, FFT_LEN/2);
