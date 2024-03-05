@@ -4,7 +4,7 @@
 //#include <Eigen30.h>
 
 #include "FFT.h"
-
+//Memory 1152KB
 /*-----------------------------------------------------------------*/
 /*
  * FFT parameters
@@ -43,25 +43,26 @@ const float c = 340;      // m/sec
 //ステアリングベクトル
 //      角度[0~360)、周波数ビン、チャンネル、実数、虚数
 float stearing_vec[MAX_ANGLE/RESOLUTION][FFT_LEN/2][MAX_CHANNEL_NUM][2];
-float corrMat[FFT_LEN/2][MAX_CHANNEL_NUM][MAX_CHANNEL_NUM][2];
-
 
 AudioClass *theAudio;
 arm_rfft_fast_instance_f32 iS;
 
-/* Select mic channel number */
+/* Select mic channel number *
+Beamforming.ino
+eigenval.cpp
+*/
 //const int mic_channel_num = 1;
 //const int mic_channel_num = 2;
 const int mic_channel_num = 4;
 
-/*
+
 // 円形マイク
 void calc_stearing_vec(){
   for(int theta=0; theta*RESOLUTION<MAX_ANGLE; theta++){
     // theta: target direction
     float radian_theta = theta*RESOLUTION*2*M_PI/360.0;
     for(int ch=0; ch<MAX_CHANNEL_NUM; ch++){
-      // ch: mic direction
+      // ch: mic direction: 0 90 180 270度
       float radian_ch = (offset+360/MAX_CHANNEL_NUM*ch)*2*M_PI/360.0;
       //円の中心を時刻０としたときの平面波の到達時間
       float tau = -radius*arm_cos_f32(radian_theta-radian_ch)/c;
@@ -71,10 +72,11 @@ void calc_stearing_vec(){
       }
     }
   }
-}*/
+}
 
 // 線形マイク
 // https://setoti.hatenablog.com/entry/beamformer
+/*
 void calc_stearing_vec(){
   for(int theta=0; theta*RESOLUTION<MAX_ANGLE; theta++){
     // theta: target direction
@@ -90,7 +92,7 @@ void calc_stearing_vec(){
     }
   }
 }
-
+*/
 
 void setup()
 {
@@ -122,7 +124,7 @@ void setup()
   theAudio->startRecorder();
 }
 
-int result_size = 4;
+static const int result_size = 4;
 
 void loop()
 {
@@ -130,7 +132,7 @@ void loop()
   static const int32_t buffer_sample = 768 * mic_channel_num;
   static const int32_t buffer_size = buffer_sample * sizeof(int16_t);
   static char  buffer[buffer_size];
-  static float result[4][MAX_ANGLE/RESOLUTION];
+  static float result[result_size][MAX_ANGLE/RESOLUTION];
 
   uint32_t read_size;
   static uint32_t succ_count=0;
@@ -147,6 +149,7 @@ void loop()
   if ((read_size != 0) && (read_size >= buffer_size)) {
     succ_count+=1;
     if(succ_count%10==0){
+    //{
       static float pTmp[MAX_CHANNEL_NUM][FFT_LEN];
       static float pDst[FFT_LEN];
       static float pPower[FFT_LEN/2];
@@ -164,23 +167,51 @@ void loop()
               pDst[2*k+1] += stearing_vec[theta][k][ch][0] * pTmp[ch][2*k+1];
               pDst[2*k+1] += stearing_vec[theta][k][ch][1] * pTmp[ch][2*k]; 
             }
-            for(int c1=0;c1<MAX_CHANNEL_NUM;c1++){
-              for(int c2=0;c2<MAX_CHANNEL_NUM;c2++){
-                corrMat[k][c1][c2][0]+=  pTmp[c1][2*k]  *pTmp[c2][2*k];
-                corrMat[k][c1][c2][0]+= -pTmp[c1][2*k+1]*pTmp[c2][2*k+1];
-                corrMat[k][c1][c2][1]+=  pTmp[c1][2*k]  *pTmp[c2][2*k+1];
-                corrMat[k][c1][c2][1]+=  pTmp[c1][2*k+1]*pTmp[c2][2*k];
-               }
-            }
-            //corrMat[k]
           }
           result[pos][theta] = 0;
           arm_cmplx_mag_f32(pDst, pPower, FFT_LEN/2);
           for(int k=0;k<FFT_LEN/2;k++){
+          //for(int k=1;k<100;k++){
             result[pos][theta] += pPower[k];
           }
-          printf("%d, %f\n", theta*RESOLUTION, result[pos][theta]);
+          //printf("%d, %f\n", theta*RESOLUTION, result[pos][theta]);
+          float res=0;
+          for(int r=0;r<result_size;r++){
+            res+=result[r][theta]/result_size;
+          }
+          printf("%d, %f\n", theta*RESOLUTION, res);
         }
+        //
+        int max_theta=0;
+        float max_pow=0;
+        for(int theta=0;theta*RESOLUTION<MAX_ANGLE;theta++){
+          if(max_pow<result[pos][theta]){
+            max_pow=result[pos][theta];
+            max_theta=theta;
+          }
+        }
+        if(0<=max_theta*RESOLUTION && max_theta*RESOLUTION <90){
+          ledOn(LED0);
+        }else{
+          ledOff(LED0);
+        }
+        if(90<=max_theta*RESOLUTION && max_theta*RESOLUTION <180){
+          ledOn(LED1);
+        }else{
+          ledOff(LED1);
+        }
+        if(180<=max_theta*RESOLUTION && max_theta*RESOLUTION <270){
+          ledOn(LED2);
+        }else{
+          ledOff(LED2);
+        }
+        if(270<=max_theta*RESOLUTION ){
+          ledOn(LED3);
+        }else{
+          ledOff(LED3);
+        }
+        
+        //
         pos = (pos+1)%result_size;
       }
       

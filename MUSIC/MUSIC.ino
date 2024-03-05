@@ -33,7 +33,7 @@
 #define SAMPLING_RATE 48000
 #define RESOLUTION 20
 #define MAX_ANGLE 360
-#define MUSIC_FREQ_BIN 1
+#define MUSIC_FREQ_BIN 16
 
 FFTClass<MAX_CHANNEL_NUM, FFT_LEN> FFT;
 /* Parameters */
@@ -88,7 +88,8 @@ inline struct Complex conj(const struct Complex& a) {
     return Complex(a.real,-a.imag);
 };
 inline float norm2(const struct Complex& a) {
-    return std::sqrt(a.real*a.real+a.imag*a.imag);
+    //return std::sqrt(a.real*a.real+a.imag*a.imag);
+    return a.real*a.real+a.imag*a.imag;
 };
 
 // Function to print a 2D array
@@ -107,7 +108,7 @@ void printArray(Complex* arr, int rows, int cols) {
 //      角度[0~360)、周波数ビン、チャンネル、実数、虚数
 Complex stearing_vec[MAX_ANGLE/RESOLUTION][FFT_LEN/2][MAX_CHANNEL_NUM];
 
-/*
+
 // 円形マイク
 void calc_stearing_vec(){
   for(int theta=0; theta*RESOLUTION<MAX_ANGLE; theta++){
@@ -119,13 +120,13 @@ void calc_stearing_vec(){
       //円の中心を時刻０としたときの平面波の到達時間
       float tau = -radius*arm_cos_f32(radian_theta-radian_ch)/c;
       for(int k=0;k<FFT_LEN/2;k++){
-        stearing_vec[theta][k][ch][0] = arm_cos_f32(2.0*M_PI*k/(float)FFT_LEN*SAMPLING_RATE*tau)/(float)MAX_CHANNEL_NUM;
-        stearing_vec[theta][k][ch][1] = arm_sin_f32(2.0*M_PI*k/(float)FFT_LEN*SAMPLING_RATE*tau)/(float)MAX_CHANNEL_NUM;
+        stearing_vec[theta][k][ch].real = arm_cos_f32(2.0*M_PI*k/(float)FFT_LEN*SAMPLING_RATE*tau)/(float)MAX_CHANNEL_NUM;
+        stearing_vec[theta][k][ch].imag = arm_sin_f32(2.0*M_PI*k/(float)FFT_LEN*SAMPLING_RATE*tau)/(float)MAX_CHANNEL_NUM;
       }
     }
   }
-}*/
-
+}
+/*
 // 線形マイク
 // https://setoti.hatenablog.com/entry/beamformer
 void calc_stearing_vec(){
@@ -143,13 +144,14 @@ void calc_stearing_vec(){
     }
   }
 }
-
+*/
 
 
 struct Complex corrMat[MAX_ANGLE/RESOLUTION][MUSIC_FREQ_BIN*MAX_CHANNEL_NUM][MAX_CHANNEL_NUM];
 struct Complex X[MAX_CHANNEL_NUM * MAX_CHANNEL_NUM];
 struct Complex An[MAX_CHANNEL_NUM * MAX_CHANNEL_NUM];
-
+static int index_An1=0;
+static int index_An2=0;
 AudioClass *theAudio;
 arm_rfft_fast_instance_f32 iS;
 
@@ -183,15 +185,15 @@ void setup()
   theAudio->startRecorder();
 }
 
-int result_size = 4;
-
+static const int result_size = 4;
+static int num_corr_count=50;
 void loop()
 {
   static int pos = 0;
   static const int32_t buffer_sample = 768 * mic_channel_num;//768 * mic_channel_num;
   static const int32_t buffer_size = buffer_sample * sizeof(int16_t);
   static char  buffer[buffer_size];
-  static float result[4][MAX_ANGLE/RESOLUTION];
+  static float result[result_size][MAX_ANGLE/RESOLUTION];
 
   uint32_t read_size;
   static uint32_t succ_count=0;
@@ -208,10 +210,9 @@ void loop()
 
   if ((read_size != 0) && (read_size >= buffer_size)) {
     succ_count+=1;
-    if(succ_count%10==0){
+    {
+    //if(succ_count%2==0){
       static float pTmp[MAX_CHANNEL_NUM][FFT_LEN];
-      static float pDst[FFT_LEN];
-      static float pPower[FFT_LEN/2];
       corr_count+=1;
       FFT.put((q15_t*)buffer,buffer_sample/mic_channel_num);
       while (!FFT.empty(0)) {
@@ -219,16 +220,6 @@ void loop()
           FFT.get_raw(&pTmp[i][0], i);
         }
         for(int theta=0;theta*RESOLUTION<MAX_ANGLE;theta++){
-          /*
-          for(int k=0;k<FFT_LEN;k++) pDst[k] = 0;
-          for(int k=0;k<FFT_LEN/2;k++){
-            for(int ch=0;ch<MAX_CHANNEL_NUM;ch++){
-              pDst[2*k] += stearing_vec[theta][k][ch][0] * pTmp[ch][2*k];
-              pDst[2*k] += -stearing_vec[theta][k][ch][1] * pTmp[ch][2*k+1];
-              pDst[2*k+1] += stearing_vec[theta][k][ch][0] * pTmp[ch][2*k+1];
-              pDst[2*k+1] += stearing_vec[theta][k][ch][1] * pTmp[ch][2*k]; 
-            }
-          }*/
           for(int k=0;k<MUSIC_FREQ_BIN;k++){//2*(MUSIC_FREQ_BIN*delta_freq_MUSIC)<FFT_LEN
             for(int c1=0;c1<MAX_CHANNEL_NUM;c1++){
               for(int c2=0;c2<MAX_CHANNEL_NUM;c2++){ // pTemp*conj(pTemp)
@@ -239,49 +230,102 @@ void loop()
               }
             }
           }
-          /*
-          result[pos][theta] = 0;
-          arm_cmplx_mag_f32(pDst, pPower, FFT_LEN/2);
-          for(int k=0;k<FFT_LEN/2;k++){
-            result[pos][theta] += pPower[k];
-          }
-          printf("%d, %f\n", theta*RESOLUTION, result[pos][theta]);
-          */
         }
       }
       //
-      if(corr_count > 10){
+      if(corr_count > num_corr_count){
         for(int theta=0;theta*RESOLUTION<MAX_ANGLE;theta++){
           result[pos][theta] = 0;
           for(int k=0;k<MUSIC_FREQ_BIN;k++){
+            // corrMat/num_corr_count
             for(int c1=0;c1<MAX_CHANNEL_NUM;c1++){
               for(int c2=0;c2<MAX_CHANNEL_NUM;c2++){
-                corrMat[theta][k][c1*MAX_CHANNEL_NUM+c2].real/=10.0f;
-                corrMat[theta][k][c1*MAX_CHANNEL_NUM+c2].imag/=10.0f;
+                corrMat[theta][k][c1*MAX_CHANNEL_NUM+c2].real/=num_corr_count;
+                corrMat[theta][k][c1*MAX_CHANNEL_NUM+c2].imag/=num_corr_count;
               }
             }
             //
             //corrMat[theta][k]
             get_eigen_val(corrMat[theta][k],MAX_CHANNEL_NUM);
+            /*
+            //固有ベクトルは列
+            Complex check1;
+            for(int c1=0;c1<MAX_CHANNEL_NUM;c1++){
+              check1 = check1 + conj(X[c1*MAX_CHANNEL_NUM+0])*X[c1*MAX_CHANNEL_NUM+1];
+              //check1 = check1 + conj(X[0,c1])*X[1,c1];
+            }
+            
+            Complex check2;
+            for(int c1=0;c1<MAX_CHANNEL_NUM;c1++){
+              check2 = check2 + conj(X[c1*MAX_CHANNEL_NUM+0])*X[c1*MAX_CHANNEL_NUM+2];
+              //check2 = check2 + conj(X[0,c1])*X[2,c1];
+            }
+            
+            Complex check3;
+            for(int c1=0;c1<MAX_CHANNEL_NUM;c1++){
+              check3 = check3 + conj(X[c1*MAX_CHANNEL_NUM+0])*X[c1*MAX_CHANNEL_NUM+0];
+              //check3 = check3 + conj(X[0,c1])*X[0,c1];
+            }
+            
+            printf(">>>> %f  %f   %f \n", norm2(check1), norm2(check2), norm2(check3));
+            */
+
             //
             float denom=0;
             for(int noise_ch=2;noise_ch<MAX_CHANNEL_NUM;noise_ch++){
-              Complex denom_dot;
-              for(int c1=0;c1<MAX_CHANNEL_NUM;c1++){
-                denom_dot = denom_dot + conj(stearing_vec[theta][k*delta_freq_MUSIC][c1])*X[c1,noise_ch];
-              }
-              denom+=norm2(denom_dot);
+                Complex denom_dot;
+                for(int c1=0;c1<MAX_CHANNEL_NUM;c1++){
+                  //denom_dot = denom_dot + conj(stearing_vec[theta][k*delta_freq_MUSIC][c1])*X[c1,noise_ch];
+                  denom_dot = denom_dot + stearing_vec[theta][k*delta_freq_MUSIC][c1] * X[c1*MAX_CHANNEL_NUM+noise_ch];
+                  //denom_dot = denom_dot + stearing_vec[theta][k*delta_freq_MUSIC][c1]*X[c1,noise_ch];
+                }
+                denom+=norm2(denom_dot);
             }
             ///
+            /*
             float s=0;
             for(int c1=0;c1<MAX_CHANNEL_NUM;c1++){
               s+=norm2(stearing_vec[theta][k*delta_freq_MUSIC][c1]);
-            }
-            result[pos][theta] += s/denom;
+            }*/
+            float s=1;
+            
+            result[pos][theta] += s/(0.01+denom);
           }
-          printf("%d, %f\n", theta*RESOLUTION, result[pos][theta]);
-          pos = (pos+1)%result_size;
+          printf("%d, %f\n", theta*RESOLUTION, result[pos][theta]/MUSIC_FREQ_BIN);
+          
         }
+
+        // LED
+        int max_theta=0;
+        float max_pow=0;
+        for(int theta=0;theta*RESOLUTION<MAX_ANGLE;theta++){
+          if(max_pow<result[pos][theta]){
+            max_pow=result[pos][theta];
+            max_theta=theta;
+          }
+        }
+        if(0<=max_theta*RESOLUTION && max_theta*RESOLUTION <90){
+          ledOn(LED0);
+        }else{
+          ledOff(LED0);
+        }
+        if(90<=max_theta*RESOLUTION && max_theta*RESOLUTION <180){
+          ledOn(LED1);
+        }else{
+          ledOff(LED1);
+        }
+        if(180<=max_theta*RESOLUTION && max_theta*RESOLUTION <270){
+          ledOn(LED2);
+        }else{
+          ledOff(LED2);
+        }
+        if(270<=max_theta*RESOLUTION ){
+          ledOn(LED3);
+        }else{
+          ledOff(LED3);
+        }
+        
+        //reset: corrMat
         for(int theta=0;theta*RESOLUTION<MAX_ANGLE;theta++){
           for(int k=0;k<MUSIC_FREQ_BIN;k++){
             for(int c1=0;c1<MAX_CHANNEL_NUM;c1++){
@@ -319,6 +363,11 @@ int get_eigen_val(Complex* A, int N) {
     
     // Initialize A and X matrices
     for (int i = 0; i < N; ++i) {
+      for (int j = 0; j < N; ++j) {
+        X[i*N+j] = Complex(0.0, 0.0); // Identity matrix
+      }
+    }
+    for (int i = 0; i < N; ++i) {
       X[i*N+i] = Complex(1.0, 0.0); // Identity matrix
     }
     
@@ -329,7 +378,7 @@ int get_eigen_val(Complex* A, int N) {
         for (int i = 0; i < N; ++i) {
             for (int j = i + 1; j < N; ++j) {
                 if (i != j) {
-                    float a = A[i * N + j].real * A[i * N + j].real + A[i * N + j].imag * A[i * N + j].imag;
+                    float a = A[i*N + j].real * A[i*N + j].real + A[i*N + j].imag * A[i*N + j].imag;
                     if (a > max_A) {
                         max_A = a;
                         p = i;
@@ -408,6 +457,21 @@ int get_eigen_val(Complex* A, int N) {
       printf(">> %f %f\n", An[i * N + i].real,An[i * N + i].imag);
     }
     printArray(X,N,N);
+    */
+
+    /*
+    int max_index=0;
+    float max_eig=0;
+    printf(">>");
+	  for (int i = 0; i < N; ++i) {
+      if (An[i * N + i].real>max_eig){
+        max_index=i;
+        max_eig=An[i * N + i].real;
+      }
+      printf(" %f %f  |", An[i * N + i].real,An[i * N + i].imag);
+    }
+    printf("\n");
+	  return max_index;
     */
     return 0;
 }

@@ -31,20 +31,29 @@ data_dict={}
 ys_cur=None
 def animate(i):
     global ys_cur
+    
     lines = readSerial.read_all() # 1 line (upto '\n')
     if len(lines)>0:
         for l in lines.decode('utf-8').split("\n")[:-1]:
             arr=l.split(",")
             print(l)
-            if len(arr)>=2:
+            if len(arr)>=2 and len(arr[0])>0:
                 x=int(arr[0].strip())
                 y=float(arr[1].strip())
                 data_dict[x]=y
+    #print("====")
+    
     items=list(sorted(data_dict.items()))
     #print(items)
     if len(items)>0:
         xs=[x/180*np.pi for x,y in items]+[items[0][0]]
         ys=[y for x,y in items]+[items[0][1]]
+        # normalize
+        #ys=np.array(ys)-np.min(ys)+10
+        #ys=np.array(ys)/4
+        #ys=np.log(np.array(ys)+1)
+        ys=np.array(ys)
+        #
         if ys_cur is None or len(ys_cur)<len(ys):
             ys_cur=ys
         else:
@@ -65,7 +74,10 @@ canvas = FigureCanvasTkAgg(fig, master=root)  # A tk.DrawingArea.
 x = np.arange(0, 3, 0.01)  # x軸(固定の値)
 l = np.arange(0, 8, 0.01)  # 表示期間(FuncAnimationで指定する関数の引数になる)
 plt = fig.add_subplot(111, polar = True)
-plt.set_ylim([0.0, 5.0])
+#plt.set_ylim([0.0, 40.0])
+plt.set_ylim([0.0, 100.0])
+#plt.set_ylim([0.0, 3.0])
+
 line, = plt.plot(x, np.sin(x))
 
 ani = animation.FuncAnimation(fig, animate, l,
